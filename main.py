@@ -5,9 +5,13 @@ from bs4 import BeautifulSoup
 from urllib.request import urlopen
 import sqlite3
 
+
 # Setting required variables
 import os
+import openai
 apiKey = os.environ["OPENAI_API_KEY"]
+openai.api_key = apiKey
+model = "gpt-3.5-turbo"
 
 from datetime import date
 dateToday = date.today()
@@ -17,10 +21,6 @@ dateToday = date.today()
 connection = sqlite3.connect("database.sqlite")
 connection.execute(
     "CREATE TABLE IF NOT EXISTS data (num INTEGER PRIMARY KEY AUTOINCREMENT, bankName STRING, balanceLowerRange INTEGER, balanceUpperRange INTEGER, interestRate REAL, dateOfExtraction STRING);")
-import openai
-
-openai.api_key = apiKey
-model = "gpt-3.5-turbo"
 
 
 # Extracting the HTML code from the respective websites and placing each section into an array.

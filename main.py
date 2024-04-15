@@ -19,9 +19,17 @@ dateToday = date.today()
 
 # Connecting to the database and creating a table if one doesn't already exist.
 connection = sqlite3.connect("database.sqlite")
-connection.execute(
-    "CREATE TABLE IF NOT EXISTS data (num INTEGER PRIMARY KEY AUTOINCREMENT, bankName STRING, balanceLowerRange INTEGER, balanceUpperRange INTEGER, interestRate REAL, dateOfExtraction STRING);")
-
+connection.execute("PRAGMA foreign_keys = ON")
+connection.executescript('''
+    CREATE TABLE IF NOT EXISTS data (
+        num INTEGER PRIMARY KEY AUTOINCREMENT,
+        bankName STRING, balanceLowerRange INTEGER,
+        balanceUpperRange INTEGER,
+        interestRate REAL,
+        dateOfExtraction STRING
+        );
+    ''')
+connection.close()
 
 # Extracting the HTML code from the respective websites and placing each section into an array.
 def findHTMLSections(url, lookThroughTables):
@@ -65,15 +73,19 @@ def getArrayOfBalanceInterests(section, model):
 
 
 # Inserting the data into the database.
-def insertIntoDatabase(balanceInterests, bankName, connection):
+def insertIntoDatabase(balanceInterests, bankName):
+    connection = sqlite3.connect("database.sqlite")
+    connection.execute("PRAGMA foreign_keys = ON")
     for i in range(0, len(balanceInterests) - 1, 3):
         connection.execute(
             "INSERT INTO data (bankName, balanceLowerRange, balanceUpperRange, interestRate, dateOfExtraction) VALUES (?, ?, ?, ?, ?)",
             (bankName, balanceInterests[i], balanceInterests[i + 1], balanceInterests[i + 2], dateToday))
+    connection.commit()
+    connection.close()
 
 
 # The main function that links all the other functions together, it extracts all the data and automatically inserts it into the database.
-def getInterestRatesAndInsertIntoDatabase(info, model, connection, lookThroughTables="no"):
+def getInterestRatesAndInsertIntoDatabase(info, model, lookThroughTables="no"):
     sectionsOfHTML = findHTMLSections(info[0], lookThroughTables)
     for sectionCheck in sectionsOfHTML:
         sectionCheck = sectionCheck.get_text().strip().replace("\n", " ")
@@ -81,7 +93,7 @@ def getInterestRatesAndInsertIntoDatabase(info, model, connection, lookThroughTa
         if "yes" in yn.lower():
             section = sectionCheck
             balanceInterests = getArrayOfBalanceInterests(section, model)
-            insertIntoDatabase(balanceInterests, info[1], connection)
+            insertIntoDatabase(balanceInterests, info[1])
             break
 
 
@@ -102,19 +114,17 @@ with databaseTab:
             if st.button("Gather Latest Data"):
                 # NatWest
                 info = ["https://www.natwest.com/savings/flexible-saver.html", "NatWest"]
-                getInterestRatesAndInsertIntoDatabase(info, model, connection)
+                getInterestRatesAndInsertIntoDatabase(info, model)
 
                 # Barclays
                 info = ["https://www.barclays.co.uk/savings/interest-rates/everyday-saver/", "Barclays"]
                 lookThroughTables = "yes"
-                getInterestRatesAndInsertIntoDatabase(info, model, connection, lookThroughTables)
+                getInterestRatesAndInsertIntoDatabase(info, model, lookThroughTables)
 
                 # HSBC
                 info = ["https://www.hsbc.co.uk/savings/products/flexible-saver/", "HSBC"]
                 lookThroughTables = "yes"
-                getInterestRatesAndInsertIntoDatabase(info, model, connection, lookThroughTables)
-
-                connection.commit()
+                getInterestRatesAndInsertIntoDatabase(info, model, lookThroughTables)
 
                 st.write("Done")
 
@@ -134,14 +144,18 @@ with databaseTab:
 
     # Displaying the data in the table.
     if st.button("Display Table"):
+        connection = sqlite3.connect("database.sqlite")
+        connection.execute("PRAGMA foreign_keys = ON")
         df = pd.read_sql_query("SELECT * FROM data", connection)
         st.dataframe(df)
+        connection.close()
 
     # Executing SQL Read Queries to display specific data from the table.
     readQuery = st.text_input("Enter a READ SQL query here:")
 
     if readQuery:
         connection = sqlite3.connect("database.sqlite")
+        connection.execute("PRAGMA foreign_keys = ON")
         if st.button("Run/Refresh Read Query"):
             try:
                 df = pd.read_sql_query(readQuery, connection)
@@ -158,6 +172,7 @@ with databaseTab:
 
     if writeQuery:
         connection = sqlite3.connect("database.sqlite")
+        connection.execute("PRAGMA foreign_keys = ON")
         if writeQuery[0:6].lower() == "create":
             st.write("This is only for dealing with the table 'data'")
         else:
@@ -194,6 +209,7 @@ with interestTab:
 
         if valid:
             connection = sqlite3.connect("database.sqlite")
+            connection.execute("PRAGMA foreign_keys = ON")
 
             # When you extract the entities from SQLite columns, they come as a tuple. This code turns it into a regular list of bank names. It also removes any duplicates at the end.
             bankNamesTuple = connection.execute("SELECT bankName FROM data").fetchall()
@@ -234,3 +250,4 @@ with interestTab:
                     st.write("")
                     st.write("")
                     st.write("##### Your savings interest rate is:", interestRate)
+            connection.close()

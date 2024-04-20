@@ -4,40 +4,63 @@ import pandas as pd
 from bs4 import BeautifulSoup
 from urllib.request import urlopen
 import sqlite3
-
-
-# Setting required variables
 import os
 import openai
+from datetime import date
+
+# Setting required variables
 apiKey = os.environ["OPENAI_API_KEY"]
 openai.api_key = apiKey
 model = "gpt-3.5-turbo"
 
-from datetime import date
 dateToday = date.today()
-
 
 # Connecting to the database and creating a table if one doesn't already exist.
 connection = sqlite3.connect("database.sqlite")
 connection.execute("PRAGMA foreign_keys = ON")
 connection.executescript('''
-    CREATE TABLE IF NOT EXISTS data (
-        num INTEGER PRIMARY KEY AUTOINCREMENT,
-        bankName STRING, balanceLowerRange INTEGER,
-        balanceUpperRange INTEGER,
-        interestRate REAL,
-        dateOfExtraction STRING
+    CREATE TABLE IF NOT EXISTS BankDetails (
+        BankID INTEGER PRIMARY KEY AUTOINCREMENT,
+        BankName STRING UNIQUE,
+        BankWebsite STRING
+        );
+    CREATE TABLE IF NOT EXISTS CurrencyType (
+        CurrencyID INTEGER PRIMARY KEY AUTOINCREMENT,
+        CurrencyName STRING UNIQUE,
+        CurrencyCode STRING,
+        CurrencySymbol CHAR(1),
+        ExchangeRate REAL
+        );
+    CREATE TABLE IF NOT EXISTS BalanceRanges (
+        BalanceRangeID INTEGER PRIMARY KEY AUTOINCREMENT,
+        BalanceLowRange INTEGER,
+        BalanceHighRange INTEGER
+        );
+    CREATE TABLE IF NOT EXISTS BankCurrency (
+        BankCurrencyID INTEGER PRIMARY KEY AUTOINCREMENT,
+        BankID INTEGER,
+        CurrencyID INTEGER,
+        FOREIGN KEY(BankID) REFERENCES BankDetails(BankID),
+        FOREIGN KEY(CurrencyID) REFERENCES CurrencyType(CurrencyID)
+        );
+    CREATE TABLE IF NOT EXISTS InterestRates (
+        DateEffective STRING,
+        BankCurrencyID INTEGER,
+        BalanceRangeID INTEGER,
+        InterestRate REAL,
+        FOREIGN KEY(BankCurrencyID) REFERENCES BankCurrency(BankCurrencyID),
+        FOREIGN KEY(BalanceRangeID) REFERENCES BalanceRanges(BalanceRangeID),
+        PRIMARY KEY(DateEffective, BankCurrencyID, BalanceRangeID)
         );
     ''')
 connection.close()
 
+
 # Extracting the HTML code from the respective websites and placing each section into an array.
-def findHTMLSections(url, lookThroughTables):
+def findHTMLSections(url):
     html = urlopen(url).read().decode("utf-8")
     soup = BeautifulSoup(html, "html.parser")
-    sections = soup.find_all("section")
-    if lookThroughTables == "yes":
-        sections += soup.find_all("table")
+    sections = soup.find_all(["section", "table"])
     return sections
 
 
@@ -78,22 +101,42 @@ def insertIntoDatabase(balanceInterests, bankName):
     connection.execute("PRAGMA foreign_keys = ON")
     for i in range(0, len(balanceInterests) - 1, 3):
         connection.execute(
-            "INSERT INTO data (bankName, balanceLowerRange, balanceUpperRange, interestRate, dateOfExtraction) VALUES (?, ?, ?, ?, ?)",
-            (bankName, balanceInterests[i], balanceInterests[i + 1], balanceInterests[i + 2], dateToday))
+            "INSERT INTO BalanceRanges (BalanceLowRange, BalanceHighRange) VALUES (?, ?)",
+            (balanceInterests[i], balanceInterests[i + 1]))
+        existing_row = connection.execute(
+            "SELECT * FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = 'GBP')",
+            (bankName,)).fetchall()
+        if not existing_row:
+            connection.execute(
+                "INSERT INTO BankCurrency (BankID, CurrencyID) VALUES ((SELECT BankID FROM BankDetails WHERE BankName = ?), (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = 'GBP'))",
+                (bankName,))
+        connection.execute(
+            "INSERT INTO InterestRates VALUES (?, ?, ?, ?)",
+            (
+                dateToday,
+                connection.execute(
+                    "SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = 'GBP')",
+                    (bankName,)).fetchall()[0][0],
+                connection.execute(
+                    "SELECT BalanceRangeID FROM BalanceRanges WHERE BalanceLowRange = ? AND BalanceHighRange = ?",
+                    (balanceInterests[i], balanceInterests[i + 1])).fetchall()[0][0],
+                balanceInterests[i + 2]
+            )
+        )
     connection.commit()
     connection.close()
 
 
 # The main function that links all the other functions together, it extracts all the data and automatically inserts it into the database.
-def getInterestRatesAndInsertIntoDatabase(info, model, lookThroughTables="no"):
-    sectionsOfHTML = findHTMLSections(info[0], lookThroughTables)
+def getInterestRatesAndInsertIntoDatabase(info, model):
+    sectionsOfHTML = findHTMLSections(info[1])
     for sectionCheck in sectionsOfHTML:
         sectionCheck = sectionCheck.get_text().strip().replace("\n", " ")
         yn = checkIfContainsInterestRates(sectionCheck, model)
         if "yes" in yn.lower():
             section = sectionCheck
             balanceInterests = getArrayOfBalanceInterests(section, model)
-            insertIntoDatabase(balanceInterests, info[1])
+            insertIntoDatabase(balanceInterests, info[0])
             break
 
 
@@ -112,19 +155,33 @@ with databaseTab:
         with midCol1:
             # The button that initiates the extraction and insertion of new data.
             if st.button("Gather Latest Data"):
-                # NatWest
-                info = ["https://www.natwest.com/savings/flexible-saver.html", "NatWest"]
-                getInterestRatesAndInsertIntoDatabase(info, model)
 
-                # Barclays
-                info = ["https://www.barclays.co.uk/savings/interest-rates/everyday-saver/", "Barclays"]
-                lookThroughTables = "yes"
-                getInterestRatesAndInsertIntoDatabase(info, model, lookThroughTables)
+                # Inserting the required banks and currency types into the database (approximate exchange rates for currencies).
+                currencies = [
+                    ["Pounds", "GBP", "£", 1],
+                    ["Euros", "EUR", "€", 0.85],
+                    ["US Dollars", "USD", "$", 0.8]
+                ]
 
-                # HSBC
-                info = ["https://www.hsbc.co.uk/savings/products/flexible-saver/", "HSBC"]
-                lookThroughTables = "yes"
-                getInterestRatesAndInsertIntoDatabase(info, model, lookThroughTables)
+                banks = [
+                    ["NatWest", "https://www.natwest.com/savings/flexible-saver.html"],
+                    ["Barclays", "https://www.barclays.co.uk/savings/interest-rates/everyday-saver/"],
+                    ["HSBC", "https://www.hsbc.co.uk/savings/products/flexible-saver/"]
+                ]
+
+                connection = sqlite3.connect("database.sqlite")
+                connection.execute("PRAGMA foreign_keys = ON")
+                connection.executemany(
+                    "INSERT OR IGNORE INTO CurrencyType (CurrencyName, CurrencyCode, CurrencySymbol, ExchangeRate) VALUES (?, ?, ?, ?)",
+                    currencies)
+                connection.executemany("INSERT OR IGNORE INTO BankDetails (BankName, BankWebsite) VALUES (?, ?)", banks)
+                connection.commit()
+                connection.close()
+
+                # calls the function that initiates the backend web scraping and data insertion for each bank.
+                for i in range(len(banks) - 1):
+                    info = banks[i]
+                    getInterestRatesAndInsertIntoDatabase(info, model)
 
                 st.write("Done")
 
@@ -140,14 +197,23 @@ with databaseTab:
 
     st.divider()
     st.subheader("Database Manipulation:")
-    st.caption("The name of the SQLite table is 'data'")
 
-    # Displaying the data in the table.
-    if st.button("Display Table"):
+    # Displaying the data for any one of the tables in the database.
+    with st.expander("Display a table"):
         connection = sqlite3.connect("database.sqlite")
         connection.execute("PRAGMA foreign_keys = ON")
-        df = pd.read_sql_query("SELECT * FROM data", connection)
-        st.dataframe(df)
+        tableNamesTuple = connection.execute("SELECT name FROM sqlite_master WHERE type = 'table' ").fetchall()
+        tableNames = []
+        for balancesTuple in tableNamesTuple:
+            tableNames.append(balancesTuple[0])
+        tableNames = list(set(tableNames))
+        tableNames.remove("sqlite_sequence")
+        option = st.selectbox(
+            "Select which table you want:", tableNames)
+        if option:
+            query = "SELECT * FROM " + option
+            df = pd.read_sql_query(query, connection)
+            st.dataframe(df)
         connection.close()
 
     # Executing SQL Read Queries to display specific data from the table.
@@ -216,7 +282,8 @@ with interestTab:
             bankNames = []
             for balancesTuple in bankNamesTuple:
                 bankNames.append(balancesTuple[0])
-            bankNames = list(set(bankNames))
+            bankNames = list(
+                set(bankNames))  # making the list a set removes duplicates, then its turned back into a list
 
             st.text("")
             option = st.selectbox(

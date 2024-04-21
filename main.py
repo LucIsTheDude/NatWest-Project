@@ -103,10 +103,10 @@ def insertIntoDatabase(balanceInterests, bankName):
         connection.execute(
             "INSERT INTO BalanceRanges (BalanceLowRange, BalanceHighRange) VALUES (?, ?)",
             (balanceInterests[i], balanceInterests[i + 1]))
-        existing_row = connection.execute(
+        existingRow = connection.execute(
             "SELECT * FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = 'GBP')",
             (bankName,)).fetchall()
-        if not existing_row:
+        if not existingRow:
             connection.execute(
                 "INSERT INTO BankCurrency (BankID, CurrencyID) VALUES ((SELECT BankID FROM BankDetails WHERE BankName = ?), (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = 'GBP'))",
                 (bankName,))
@@ -179,7 +179,7 @@ with databaseTab:
                 connection.close()
 
                 # calls the function that initiates the backend web scraping and data insertion for each bank.
-                for i in range(len(banks) - 1):
+                for i in range(len(banks)):
                     info = banks[i]
                     getInterestRatesAndInsertIntoDatabase(info, model)
 

@@ -20,28 +20,30 @@ connection = sqlite3.connect("database.sqlite")
 connection.execute("PRAGMA foreign_keys = ON")
 connection.executescript('''
     CREATE TABLE IF NOT EXISTS BankDetails (
-        BankID INTEGER PRIMARY KEY AUTOINCREMENT,
+        BankID INTEGER PRIMARY KEY,
         BankName STRING UNIQUE,
         BankWebsite STRING
         );
     CREATE TABLE IF NOT EXISTS CurrencyType (
-        CurrencyID INTEGER PRIMARY KEY AUTOINCREMENT,
+        CurrencyID INTEGER PRIMARY KEY,
         CurrencyName STRING UNIQUE,
         CurrencyCode STRING,
         CurrencySymbol CHAR(1),
         ExchangeRate REAL
         );
     CREATE TABLE IF NOT EXISTS BalanceRanges (
-        BalanceRangeID INTEGER PRIMARY KEY AUTOINCREMENT,
+        BalanceRangeID INTEGER PRIMARY KEY,
         BalanceLowRange INTEGER,
-        BalanceHighRange INTEGER
+        BalanceHighRange INTEGER,
+        UNIQUE(BalanceLowRange, BalanceHighRange)
         );
     CREATE TABLE IF NOT EXISTS BankCurrency (
-        BankCurrencyID INTEGER PRIMARY KEY AUTOINCREMENT,
+        BankCurrencyID INTEGER PRIMARY KEY,
         BankID INTEGER,
         CurrencyID INTEGER,
         FOREIGN KEY(BankID) REFERENCES BankDetails(BankID),
-        FOREIGN KEY(CurrencyID) REFERENCES CurrencyType(CurrencyID)
+        FOREIGN KEY(CurrencyID) REFERENCES CurrencyType(CurrencyID),
+        UNIQUE(BankID, CurrencyID)
         );
     CREATE TABLE IF NOT EXISTS InterestRates (
         DateEffective STRING,
@@ -70,7 +72,7 @@ def checkIfContainsInterestRates(sectionCheck, model):
         model=model,
         messages=[
             {"role": "system",
-             "content": "Your purpose is to inform if there are any balance ranges with corresponding AER interest rates for each range contained within the text given to you. Only answer with 'yes' or 'no'."},
+             "content": "Your purpose is to inform if there are any AER interest rates with corresponding balance ranges contained within the text given to you. Only answer with 'yes' or 'no'."},
             {"role": "user", "content": sectionCheck}
         ],
         temperature=0,
@@ -101,15 +103,11 @@ def insertIntoDatabase(balanceInterests, bankName):
     connection.execute("PRAGMA foreign_keys = ON")
     for i in range(0, len(balanceInterests) - 1, 3):
         connection.execute(
-            "INSERT INTO BalanceRanges (BalanceLowRange, BalanceHighRange) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO BalanceRanges (BalanceLowRange, BalanceHighRange) VALUES (?, ?)",
             (balanceInterests[i], balanceInterests[i + 1]))
-        existingRow = connection.execute(
-            "SELECT * FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = 'GBP')",
-            (bankName,)).fetchall()
-        if not existingRow:
-            connection.execute(
-                "INSERT INTO BankCurrency (BankID, CurrencyID) VALUES ((SELECT BankID FROM BankDetails WHERE BankName = ?), (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = 'GBP'))",
-                (bankName,))
+        connection.execute(
+            "INSERT OR IGNORE INTO BankCurrency (BankID, CurrencyID) VALUES ((SELECT BankID FROM BankDetails WHERE BankName = ?), (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = 'GBP'))",
+            (bankName,))
         connection.execute(
             "INSERT INTO InterestRates VALUES (?, ?, ?, ?)",
             (
@@ -206,14 +204,13 @@ with databaseTab:
         tableNames = []
         for balancesTuple in tableNamesTuple:
             tableNames.append(balancesTuple[0])
-        tableNames = list(set(tableNames))
-        tableNames.remove("sqlite_sequence")
         option = st.selectbox(
             "Select which table you want:", tableNames)
         if option:
             query = "SELECT * FROM " + option
             df = pd.read_sql_query(query, connection)
             st.dataframe(df)
+            st.caption("(0 means infinite)")
         connection.close()
 
     # Executing SQL Read Queries to display specific data from the table.
@@ -240,19 +237,33 @@ with databaseTab:
         connection = sqlite3.connect("database.sqlite")
         connection.execute("PRAGMA foreign_keys = ON")
         if writeQuery[0:6].lower() == "create":
-            st.write("This is only for dealing with the table 'data'")
+            st.write("This is only for dealing with the current tables.")
         else:
             try:
                 connection.execute(writeQuery)
             except:
                 st.write("Invalid Query")
-            df = pd.read_sql_query("SELECT * FROM data", connection)
-            st.dataframe(df)
-            st.caption("(0 means infinite)")
+            # df = pd.read_sql_query("SELECT * FROM data", connection)
+            # st.dataframe(df)
+            # st.caption("(0 means infinite)")
             if st.button("Commit Changes to Database"):
                 connection.commit()
                 st.write("Changes committed successfully!")
         connection.close()
+
+    if st.button("Reset Database"):
+        connection = sqlite3.connect("database.sqlite")
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.executescript('''
+            DELETE FROM InterestRates;
+            DELETE FROM BankCurrency;
+            DELETE FROM BalanceRanges;
+            DELETE FROM CurrencyType;
+            DELETE FROM BankDetails;
+            ''')
+        connection.commit()
+        connection.close()
+        st.write("Database reset successfully!")
 
 # The second tab is for savings predictions.
 with interestTab:
@@ -278,37 +289,34 @@ with interestTab:
             connection.execute("PRAGMA foreign_keys = ON")
 
             # When you extract the entities from SQLite columns, they come as a tuple. This code turns it into a regular list of bank names. It also removes any duplicates at the end.
-            bankNamesTuple = connection.execute("SELECT bankName FROM data").fetchall()
+            bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
             bankNames = []
             for balancesTuple in bankNamesTuple:
                 bankNames.append(balancesTuple[0])
-            bankNames = list(
-                set(bankNames))  # making the list a set removes duplicates, then its turned back into a list
 
             st.text("")
-            option = st.selectbox(
-                "Select the bank you're considering:", bankNames)
+            option = st.selectbox("Select the bank you're considering:", bankNames)
 
             if option:
                 # This code compares the user-inputted balance range and finds the associated interest rate for the bank they picked.
                 balanceRangesTuple = connection.execute(
-                    "SELECT balanceLowerRange, balanceUpperRange FROM data WHERE bankName = ?", (option,)).fetchall()
+                    "SELECT BalanceLowRange, BalanceHighRange FROM BalanceRanges WHERE BalanceRangeID IN (SELECT BalanceRangeID FROM InterestRates WHERE BankCurrencyID IN (SELECT BankCurrencyID FROM BankCurrency WHERE BankID IN (SELECT BankID FROM BankDetails WHERE BankName = ?)))",
+                    (option,)).fetchall()
                 balanceRanges = []
                 for balancesTuple in balanceRangesTuple:
                     for i in balancesTuple:
                         balanceRanges.append(i)
 
-                for i in range(1, len(balanceRanges), 2):
-                    if balanceRanges[i] == 0:
-                        balanceRanges[i] = float("inf")
+                balanceRanges_updated = balanceRanges.copy()
+                for i in range(1, len(balanceRanges_updated), 2):
+                    if balanceRanges_updated[i] == 0:
+                        balanceRanges_updated[i] = float("inf")
 
-                interestRate = 0
-                for i in range(0, len(balanceRanges), 2):
-                    if balanceRanges[i] <= num <= balanceRanges[i + 1]:
-                        interestRate = \
-                            connection.execute(
-                                "SELECT interestRate FROM data WHERE bankName = ? AND balanceLowerRange = ?",
-                                (option, balanceRanges[i])).fetchall()[0][0]
+                for i in range(0, len(balanceRanges_updated), 2):
+                    if balanceRanges_updated[i] <= num <= balanceRanges_updated[i + 1]:
+                        interestRate = connection.execute(
+                                "SELECT InterestRate FROM InterestRates WHERE BankCurrencyID = (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?)) AND BalanceRangeID = (SELECT BalanceRangeID FROM BalanceRanges WHERE BalanceLowRange = ? AND BalanceHighRange = ?)",
+                                (option, balanceRanges[i], balanceRanges[i + 1])).fetchall()[0][0]
                         break
 
                 _, interestCol, _ = st.columns([4, 7, 4])

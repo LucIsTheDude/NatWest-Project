@@ -1,4 +1,4 @@
-# Importing packages I will need.
+# Importing necessary packages and libraries.
 import streamlit as st
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -109,7 +109,7 @@ def insertIntoDatabase(balanceInterests, bankName):
             "INSERT OR IGNORE INTO BankCurrency (BankID, CurrencyID) VALUES ((SELECT BankID FROM BankDetails WHERE BankName = ?), (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = 'GBP'))",
             (bankName,))
         connection.execute(
-            "INSERT INTO InterestRates VALUES (?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO InterestRates VALUES (?, ?, ?, ?)",
             (
                 dateToday,
                 connection.execute(

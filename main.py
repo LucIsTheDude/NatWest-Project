@@ -8,7 +8,7 @@ import os
 import openai
 from datetime import date
 
-# Setting required variables
+# Setting required variables.
 apiKey = os.environ["OPENAI_API_KEY"]
 openai.api_key = apiKey
 model = "gpt-3.5-turbo"
@@ -52,7 +52,8 @@ connection.executescript('''
         InterestRate REAL,
         FOREIGN KEY(BankCurrencyID) REFERENCES BankCurrency(BankCurrencyID),
         FOREIGN KEY(BalanceRangeID) REFERENCES BalanceRanges(BalanceRangeID),
-        PRIMARY KEY(DateEffective, BankCurrencyID, BalanceRangeID)
+        PRIMARY KEY(DateEffective, BankCurrencyID, BalanceRangeID),
+        UNIQUE (BankCurrencyID, BalanceRangeID, InterestRate)
         );
     ''')
 connection.close()
@@ -196,14 +197,52 @@ with databaseTab:
     st.divider()
     st.subheader("Database Manipulation:")
 
-    # Displaying the data for any one of the tables in the database.
-    with st.expander("Display a table"):
+    # Executing SQL Read Queries to display specific data from the table.
+    # readQuery = st.text_input("Enter a READ SQL query here:")
+    #
+    # if readQuery:
+    #     connection = sqlite3.connect("database.sqlite")
+    #     connection.execute("PRAGMA foreign_keys = ON")
+    #     if st.button("Run/Refresh Read Query"):
+    #         try:
+    #             df = pd.read_sql_query(readQuery, connection)
+    #             st.dataframe(df)
+    #             st.caption("(0 means infinite)")
+    #         except:
+    #             st.write("Invalid Query")
+    #     connection.close()
+    #
+    # st.text("")
+
+    # Executing SQL Write Queries to add, edit or delete data from the table.
+    # writeQuery = st.text_input("Enter a WRITE SQL query here:")
+    #
+    # if writeQuery:
+    #     connection = sqlite3.connect("database.sqlite")
+    #     connection.execute("PRAGMA foreign_keys = ON")
+    #     if writeQuery[0:6].lower() == "create":
+    #         st.write("This is only for dealing with the current tables.")
+    #     else:
+    #         try:
+    #             connection.execute(writeQuery)
+    #         except:
+    #             st.write("Invalid Query")
+    #         # df = pd.read_sql_query("SELECT * FROM data", connection)
+    #         # st.dataframe(df)
+    #         # st.caption("(0 means infinite)")
+    #         if st.button("Commit Changes to Database"):
+    #             connection.commit()
+    #             st.write("Changes committed successfully!")
+    #     connection.close()
+
+    # Allows the user to display the data for any one of the tables in the database.
+    with st.expander("Display a Table"):
         connection = sqlite3.connect("database.sqlite")
         connection.execute("PRAGMA foreign_keys = ON")
         tableNamesTuple = connection.execute("SELECT name FROM sqlite_master WHERE type = 'table' ").fetchall()
         tableNames = []
-        for balancesTuple in tableNamesTuple:
-            tableNames.append(balancesTuple[0])
+        for tableNameTuple in tableNamesTuple:
+            tableNames.append(tableNameTuple[0])
         option = st.selectbox(
             "Select which table you want:", tableNames)
         if option:
@@ -213,44 +252,37 @@ with databaseTab:
             st.caption("(0 means infinite)")
         connection.close()
 
-    # Executing SQL Read Queries to display specific data from the table.
-    readQuery = st.text_input("Enter a READ SQL query here:")
+    # Allows the user to display specific data from the database, including referencing other tables.
+    with st.expander("Display Specific Data from the Database"):
+        choices = ["View Interest Rates", "View the Currency for Each Bank", "View the Website for Each Bank"]
+        choice = st.selectbox("Select an option:", choices, index=None, placeholder="Select an option...")
+        if choice:
+            connection = sqlite3.connect("database.sqlite")
+            connection.execute("PRAGMA foreign_keys = ON")
+            bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
+            bankNames = []
+            for bankNameTuple in bankNamesTuple:
+                bankNames.append(bankNameTuple[0])
+            user_bankNames = st.multiselect("Select the banks you would like to see the data for:", bankNames, placeholder="Select banks...")
+            if user_bankNames:
+                st.write("")
+                questionMarks = ", ".join("?" * len(user_bankNames))
+                if choice == choices[0]:
+                    query = f"SELECT BankName, BalanceLowRange, BalanceHighRange, InterestRate, DateEffective FROM BankDetails JOIN BankCurrency USING (BankID) JOIN InterestRates USING (BankCurrencyID) JOIN BalanceRanges USING (BalanceRangeID) WHERE BankName IN ({questionMarks})"
+                    df = pd.read_sql_query(query, connection, params=user_bankNames)
+                    st.dataframe(df)
+                    st.caption("(0 means infinite)")
+                elif choice == choices[1]:
+                    query = f"SELECT BankName, CurrencyName, CurrencyCode, CurrencySymbol FROM BankDetails JOIN BankCurrency USING (BankID) JOIN CurrencyType USING (CurrencyID) WHERE BankName IN ({questionMarks})"
+                    df = pd.read_sql_query(query, connection, params=user_bankNames)
+                    st.dataframe(df)
+                elif choice == choices[2]:
+                    query = f"SELECT BankName, BankWebsite FROM BankDetails WHERE BankName IN ({questionMarks})"
+                    df = pd.read_sql_query(query, connection, params=user_bankNames)
+                    st.dataframe(df)
+            connection.close()
 
-    if readQuery:
-        connection = sqlite3.connect("database.sqlite")
-        connection.execute("PRAGMA foreign_keys = ON")
-        if st.button("Run/Refresh Read Query"):
-            try:
-                df = pd.read_sql_query(readQuery, connection)
-                st.dataframe(df)
-                st.caption("(0 means infinite)")
-            except:
-                st.write("Invalid Query")
-        connection.close()
-
-    st.text("")
-
-    # Executing SQL Write Queries to add, edit or delete data from the table.
-    writeQuery = st.text_input("Enter a WRITE SQL query here:")
-
-    if writeQuery:
-        connection = sqlite3.connect("database.sqlite")
-        connection.execute("PRAGMA foreign_keys = ON")
-        if writeQuery[0:6].lower() == "create":
-            st.write("This is only for dealing with the current tables.")
-        else:
-            try:
-                connection.execute(writeQuery)
-            except:
-                st.write("Invalid Query")
-            # df = pd.read_sql_query("SELECT * FROM data", connection)
-            # st.dataframe(df)
-            # st.caption("(0 means infinite)")
-            if st.button("Commit Changes to Database"):
-                connection.commit()
-                st.write("Changes committed successfully!")
-        connection.close()
-
+    # Button to reset the database.
     if st.button("Reset Database"):
         connection = sqlite3.connect("database.sqlite")
         connection.execute("PRAGMA foreign_keys = ON")
@@ -264,6 +296,7 @@ with databaseTab:
         connection.commit()
         connection.close()
         st.write("Database reset successfully!")
+
 
 # The second tab is for savings predictions.
 with interestTab:
@@ -291,8 +324,8 @@ with interestTab:
             # When you extract the entities from SQLite columns, they come as a tuple. This code turns it into a regular list of bank names. It also removes any duplicates at the end.
             bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
             bankNames = []
-            for balancesTuple in bankNamesTuple:
-                bankNames.append(balancesTuple[0])
+            for bankNameTuple in bankNamesTuple:
+                bankNames.append(bankNameTuple[0])
 
             st.text("")
             option = st.selectbox("Select the bank you're considering:", bankNames)

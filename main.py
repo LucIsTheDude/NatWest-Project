@@ -197,43 +197,8 @@ with databaseTab:
     st.divider()
     st.subheader("Database Manipulation:")
 
-    # Executing SQL Read Queries to display specific data from the table.
-    # readQuery = st.text_input("Enter a READ SQL query here:")
-    #
-    # if readQuery:
-    #     connection = sqlite3.connect("database.sqlite")
-    #     connection.execute("PRAGMA foreign_keys = ON")
-    #     if st.button("Run/Refresh Read Query"):
-    #         try:
-    #             df = pd.read_sql_query(readQuery, connection)
-    #             st.dataframe(df)
-    #             st.caption("(0 means infinite)")
-    #         except:
-    #             st.write("Invalid Query")
-    #     connection.close()
-    #
-    # st.text("")
-
-    # Executing SQL Write Queries to add, edit or delete data from the table.
-    # writeQuery = st.text_input("Enter a WRITE SQL query here:")
-    #
-    # if writeQuery:
-    #     connection = sqlite3.connect("database.sqlite")
-    #     connection.execute("PRAGMA foreign_keys = ON")
-    #     if writeQuery[0:6].lower() == "create":
-    #         st.write("This is only for dealing with the current tables.")
-    #     else:
-    #         try:
-    #             connection.execute(writeQuery)
-    #         except:
-    #             st.write("Invalid Query")
-    #         # df = pd.read_sql_query("SELECT * FROM data", connection)
-    #         # st.dataframe(df)
-    #         # st.caption("(0 means infinite)")
-    #         if st.button("Commit Changes to Database"):
-    #             connection.commit()
-    #             st.write("Changes committed successfully!")
-    #     connection.close()
+    st.write("")
+    st.write("Database Read Operations:")
 
     # Allows the user to display the data for any one of the tables in the database.
     with st.expander("Display a Table"):
@@ -243,8 +208,7 @@ with databaseTab:
         tableNames = []
         for tableNameTuple in tableNamesTuple:
             tableNames.append(tableNameTuple[0])
-        option = st.selectbox(
-            "Select which table you want:", tableNames)
+        option = st.selectbox("Select which table you want:", tableNames, index=None, placeholder="Select a table...")
         if option:
             query = "SELECT * FROM " + option
             df = pd.read_sql_query(query, connection)
@@ -254,7 +218,7 @@ with databaseTab:
 
     # Allows the user to display specific data from the database, including referencing other tables.
     with st.expander("Display Specific Data from the Database"):
-        choices = ["View Interest Rates", "View the Currency for Each Bank", "View the Website for Each Bank"]
+        choices = ["View Interest Rates", "View the Currencies for Each Bank", "View the Website for Each Bank"]
         choice = st.selectbox("Select an option:", choices, index=None, placeholder="Select an option...")
         if choice:
             connection = sqlite3.connect("database.sqlite")
@@ -263,12 +227,17 @@ with databaseTab:
             bankNames = []
             for bankNameTuple in bankNamesTuple:
                 bankNames.append(bankNameTuple[0])
-            user_bankNames = st.multiselect("Select the banks you would like to see the data for:", bankNames, placeholder="Select banks...")
+            user_bankNames = st.multiselect("Select the banks you would like to see the data for:", bankNames,
+                                            placeholder="Select banks...")
             if user_bankNames:
-                st.write("")
                 questionMarks = ", ".join("?" * len(user_bankNames))
                 if choice == choices[0]:
-                    query = f"SELECT BankName, BalanceLowRange, BalanceHighRange, InterestRate, DateEffective FROM BankDetails JOIN BankCurrency USING (BankID) JOIN InterestRates USING (BankCurrencyID) JOIN BalanceRanges USING (BalanceRangeID) WHERE BankName IN ({questionMarks})"
+                    query = f"SELECT BankName, BalanceLowRange, BalanceHighRange, InterestRate, CurrencyCode, DateEffective FROM BankDetails JOIN BankCurrency USING (BankID) JOIN InterestRates USING (BankCurrencyID) JOIN BalanceRanges USING (BalanceRangeID) JOIN CurrencyType USING (CurrencyID) WHERE BankName IN ({questionMarks})"
+                    if st.checkbox("Show Only Today's Interest Rates"):
+                        query += " AND DateEffective = ?"
+                        user_bankNames.append(dateToday)
+                    if st.checkbox("Sort By Interest Rate"):
+                        query += " ORDER BY InterestRate DESC"
                     df = pd.read_sql_query(query, connection, params=user_bankNames)
                     st.dataframe(df)
                     st.caption("(0 means infinite)")
@@ -281,6 +250,82 @@ with databaseTab:
                     df = pd.read_sql_query(query, connection, params=user_bankNames)
                     st.dataframe(df)
             connection.close()
+
+    st.write("")
+    st.write("Database Write Operations:")
+
+    # Allows the user to add data to the database.
+    with st.expander("Add Data to the Database"):
+        connection = sqlite3.connect("database.sqlite")
+        connection.execute("PRAGMA foreign_keys = ON")
+        choices = ["Add a Bank", "Add an Interest Rate", "Add a Currency"]
+        choice = st.selectbox("Select an option:", choices, index=None, placeholder="Select an option...")
+        st.write(
+            "NOTE: This is for manual data entry, data entered here wont be automatically updated or extracted when the 'Gather Latest Data' button is pressed.")
+        if choice == choices[0]:
+            bankName = st.text_input("Enter the name of the bank:")
+            bankWebsite = st.text_input("Enter the website link to the instant access savings page of the bank:")
+            if st.button("Add Bank"):
+                try:
+                    connection.execute("INSERT INTO BankDetails (BankName, BankWebsite) VALUES (?, ?)",
+                                       (bankName, bankWebsite))
+                    connection.commit()
+                    st.write("Bank added successfully!")
+                except:
+                    st.write("Invalid Inputs")
+        elif choice == choices[1]:
+            bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
+            bankNames = []
+            for bankNameTuple in bankNamesTuple:
+                bankNames.append(bankNameTuple[0])
+            currencyCodesTuple = connection.execute("SELECT CurrencyCode FROM CurrencyType").fetchall()
+            currencyCodes = []
+            for currencyCodeTuple in currencyCodesTuple:
+                currencyCodes.append(currencyCodeTuple[0])
+            bankName = st.selectbox("Select the bank you want to add an interest rate for:", bankNames, index=None,
+                                    placeholder="Select a bank..")
+            currencyCode = st.selectbox("Select the currency for this interest rate:", currencyCodes, index=None,
+                                        placeholder="Select a currency...")
+            balanceLowRange = st.text_input("Enter the lower boundary of the balance range (INTEGER VALUES ONLY):",
+                                            value=None, placeholder="Enter a number...")
+            balanceHighRange = st.text_input("Enter the upper boundary of the balance range (INTEGER VALUES ONLY):",
+                                             value=None, placeholder="Enter a number...")
+            interestRate = st.text_input("Enter the interest rate for the balance range:", value=None,
+                                         placeholder="Enter a number...")
+            if st.button("Add Interest Rate"):
+                try:
+                    balanceLowRange = int(balanceLowRange)
+                    balanceHighRange = int(balanceHighRange)
+                    interestRate = float(interestRate)
+                    connection.execute(
+                        "INSERT OR IGNORE INTO BalanceRanges (BalanceLowRange, BalanceHighRange) VALUES (?, ?)",
+                        (balanceLowRange, balanceHighRange))
+                    connection.execute(
+                        "INSERT OR IGNORE INTO BankCurrency (BankID, CurrencyID) VALUES ((SELECT BankID FROM BankDetails WHERE BankName = ?), (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = ?))",
+                        (bankName, currencyCode))
+                    connection.execute(
+                        "INSERT OR IGNORE INTO InterestRates VALUES (?, (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = ?)), (SELECT BalanceRangeID FROM BalanceRanges WHERE BalanceLowRange = ? AND BalanceHighRange = ?), ?)",
+                        (dateToday, bankName, currencyCode, balanceLowRange, balanceHighRange, interestRate))
+                    connection.commit()
+                    st.write("Interest rate added successfully!")
+                except:
+                    st.write("Invalid Inputs")
+        elif choice == choices[2]:
+            currencyName = st.text_input("Enter the name of the currency:")
+            currencyCode = st.text_input("Enter the currency code:")
+            currencySymbol = st.text_input("Enter the currency symbol (SINGLE CHARACTER):")
+            exchangeRate = st.text_input("Enter the exchange rate to GBP (multiplier for this currency to give GBP):")
+            if st.button("Add Currency"):
+                try:
+                    exchangeRate = float(exchangeRate)
+                    connection.execute(
+                        "INSERT OR IGNORE INTO CurrencyType (CurrencyName, CurrencyCode, CurrencySymbol, ExchangeRate) VALUES (?, ?, ?, ?)",
+                        (currencyName, currencyCode, currencySymbol, exchangeRate))
+                    connection.commit()
+                    st.write("Currency added successfully!")
+                except:
+                    st.write("Invalid Inputs")
+        connection.close()
 
     # Button to reset the database.
     if st.button("Reset Database"):
@@ -297,8 +342,7 @@ with databaseTab:
         connection.close()
         st.write("Database reset successfully!")
 
-
-# The second tab is for savings predictions.
+# The second tab is for seeing what interest rate you could have on your savings balance.
 with interestTab:
     _, mainCol, _ = st.columns([1, 6, 1])
 
@@ -345,17 +389,21 @@ with interestTab:
                     if balanceRanges_updated[i] == 0:
                         balanceRanges_updated[i] = float("inf")
 
+                interestRate = None  # Default value if no interest rate is found.
                 for i in range(0, len(balanceRanges_updated), 2):
                     if balanceRanges_updated[i] <= num <= balanceRanges_updated[i + 1]:
                         interestRate = connection.execute(
-                                "SELECT InterestRate FROM InterestRates WHERE BankCurrencyID = (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?)) AND BalanceRangeID = (SELECT BalanceRangeID FROM BalanceRanges WHERE BalanceLowRange = ? AND BalanceHighRange = ?)",
-                                (option, balanceRanges[i], balanceRanges[i + 1])).fetchall()[0][0]
+                            "SELECT InterestRate FROM InterestRates WHERE BankCurrencyID = (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?)) AND BalanceRangeID = (SELECT BalanceRangeID FROM BalanceRanges WHERE BalanceLowRange = ? AND BalanceHighRange = ?)",
+                            (option, balanceRanges[i], balanceRanges[i + 1])).fetchall()[0][0]
                         break
 
-                _, interestCol, _ = st.columns([4, 7, 4])
+                st.write("")
+                st.write("")
 
-                with interestCol:
-                    st.write("")
-                    st.write("")
-                    st.write("##### Your savings interest rate is:", interestRate)
+                if interestRate is None:
+                    st.write("##### This bank has not supplied an interest rate for your savings amount.")
+                else:
+                    _, interestCol, _ = st.columns([4, 7, 4])
+                    with interestCol:
+                        st.write("##### Your savings interest rate is:", interestRate)
             connection.close()

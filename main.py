@@ -327,6 +327,167 @@ with databaseTab:
                     st.write("Invalid Inputs")
         connection.close()
 
+    # Allows the user to delete data from the database.
+    with st.expander("Delete Data from the Database"):
+        connection = sqlite3.connect("database.sqlite")
+        connection.execute("PRAGMA foreign_keys = ON")
+        choices = ["Delete a Bank", "Delete an Interest Rate", "Delete a Currency"]
+        choice = st.selectbox("Select an option:", choices, index=None, placeholder="Select an option...")
+        if choice == choices[0]:
+            st.write("WARNING: Deleting a bank will delete all it's associated interest rates as well.")
+            bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
+            bankNames = []
+            for bankNameTuple in bankNamesTuple:
+                bankNames.append(bankNameTuple[0])
+            bankName = st.selectbox("Select the bank you want to delete:", bankNames, index=None, placeholder="Select a bank..")
+            if st.button("Delete Bank"):
+                connection.execute("DELETE FROM InterestRates WHERE BankCurrencyID = (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?))", (bankName,))
+                connection.execute("DELETE FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?)", (bankName,))
+                connection.execute("DELETE FROM BankDetails WHERE BankName = ?", (bankName,))
+                connection.execute("DELETE FROM BalanceRanges WHERE BalanceRangeID NOT IN (SELECT BalanceRangeID FROM InterestRates)")
+                connection.commit()
+                st.write("Bank deleted successfully!")
+        elif choice == choices[1]:
+            bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
+            bankNames = []
+            for bankNameTuple in bankNamesTuple:
+                bankNames.append(bankNameTuple[0])
+            currencyCodesTuple = connection.execute("SELECT CurrencyCode FROM CurrencyType").fetchall()
+            currencyCodes = []
+            for currencyCodeTuple in currencyCodesTuple:
+                currencyCodes.append(currencyCodeTuple[0])
+            bankName = st.selectbox("Select the bank you want to delete an interest rate from:", bankNames, index=None, placeholder="Select a bank..")
+            currencyCode = st.selectbox("Select the currency for this interest rate:", currencyCodes, index=None, placeholder="Select a currency...")
+            interestRatesTuple = connection.execute("SELECT InterestRate FROM InterestRates WHERE BankCurrencyID IN (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = ?))", (bankName, currencyCode)).fetchall()
+            interestRates = []
+            for interestRateTuple in interestRatesTuple:
+                interestRates.append(interestRateTuple[0])
+            if not interestRates:
+                st.write("No interest rates found for this bank and currency.")
+            else:
+                interestRate = st.selectbox("Select the interest rate you want to delete:", interestRates, index=None, placeholder="Select an interest rate...")
+            if st.button("Delete Interest Rate"):
+                connection.execute("DELETE FROM InterestRates WHERE BankCurrencyID = (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = ?)) AND InterestRate = ?", (bankName, currencyCode, interestRate))
+                connection.execute("DELETE FROM BalanceRanges WHERE BalanceRangeID NOT IN (SELECT BalanceRangeID FROM InterestRates)")
+                connection.commit()
+                st.write("Interest rate deleted successfully!")
+        elif choice == choices[2]:
+            st.write("WARNING: Deleting a currency will delete all the associated interest rates as well.")
+            currencyCodesTuple = connection.execute("SELECT CurrencyCode FROM CurrencyType").fetchall()
+            currencyCodes = []
+            for currencyCodeTuple in currencyCodesTuple:
+                currencyCodes.append(currencyCodeTuple[0])
+            currencyCode = st.selectbox("Select the currency you want to delete:", currencyCodes, index=None, placeholder="Select a currency...")
+            if st.button("Delete Currency"):
+                connection.execute("DELETE FROM InterestRates WHERE BankCurrencyID = (SELECT BankCurrencyID FROM BankCurrency WHERE CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = ?))", (currencyCode,))
+                connection.execute("DELETE FROM BankCurrency WHERE CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = ?)", (currencyCode,))
+                connection.execute("DELETE FROM CurrencyType WHERE CurrencyCode = ?", (currencyCode,))
+                connection.execute("DELETE FROM BalanceRanges WHERE BalanceRangeID NOT IN (SELECT BalanceRangeID FROM InterestRates)")
+                connection.commit()
+                st.write("Currency deleted successfully!")
+        connection.close()
+
+    # Allows the user to amend data in the database.
+    with st.expander("Amend Data in the Database"):
+        connection = sqlite3.connect("database.sqlite")
+        connection.execute("PRAGMA foreign_keys = ON")
+        choices = ["Amend a Bank", "Amend an Interest Rate", "Amend a Currency"]
+        choice = st.selectbox("Select an option:", choices, index=None, placeholder="Select an option...")
+        if choice == choices[0]:
+            bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
+            bankNames = []
+            for bankNameTuple in bankNamesTuple:
+                bankNames.append(bankNameTuple[0])
+            bankName = st.selectbox("Select the bank you want to amend:", bankNames, index=None, placeholder="Select a bank..")
+            bankChoices = ["Amend Bank Name", "Amend Bank Website"]
+            bankChoice = st.selectbox("Select what you want to amend:", bankChoices, index=None, placeholder="Select an option...")
+            if bankChoice == bankChoices[0]:
+                newBankName = st.text_input("Enter the new name for the bank:", value=None, placeholder="Enter a name...")
+                if st.button("Amend Bank"):
+                    try:
+                        connection.execute("UPDATE BankDetails SET BankName = ? WHERE BankName = ?", (newBankName, bankName))
+                        connection.commit()
+                        st.write("Bank amended successfully!")
+                    except:
+                        st.write("Invalid Inputs")
+            elif bankChoice == bankChoices[1]:
+                newBankWebsite = st.text_input("Enter the new website link to the instant access savings page of the bank:", value=None, placeholder="Enter a link...")
+                if st.button("Amend Bank"):
+                    try:
+                        connection.execute("UPDATE BankDetails SET BankWebsite = ? WHERE BankName = ?", (newBankWebsite, bankName))
+                        connection.commit()
+                        st.write("Bank amended successfully!")
+                    except:
+                        st.write("Invalid Inputs")
+        elif choice == choices[1]:
+            bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
+            bankNames = []
+            for bankNameTuple in bankNamesTuple:
+                bankNames.append(bankNameTuple[0])
+            currencyCodesTuple = connection.execute("SELECT CurrencyCode FROM CurrencyType").fetchall()
+            currencyCodes = []
+            for currencyCodeTuple in currencyCodesTuple:
+                currencyCodes.append(currencyCodeTuple[0])
+            bankName = st.selectbox("Select the bank you want to amend an interest rate for:", bankNames, index=None, placeholder="Select a bank..")
+            currencyCode = st.selectbox("Select the currency for this interest rate:", currencyCodes, index=None, placeholder="Select a currency...")
+            interestRatesTuple = connection.execute("SELECT InterestRate FROM InterestRates WHERE BankCurrencyID IN (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = ?))", (bankName, currencyCode)).fetchall()
+            interestRates = []
+            for interestRateTuple in interestRatesTuple:
+                interestRates.append(interestRateTuple[0])
+            interestRate = st.selectbox("Select the interest rate you want to amend:", interestRates, index=None, placeholder="Select an interest rate...")
+            if bankName and currencyCode and interestRate:
+                balanceRangesTuple = connection.execute("SELECT BalanceLowRange, BalanceHighRange FROM BalanceRanges WHERE BalanceRangeID = (SELECT BalanceRangeID FROM InterestRates WHERE BankCurrencyID = (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = ?)) AND InterestRate = ?)", (bankName, currencyCode, interestRate)).fetchall()
+                balanceLowRange = str(balanceRangesTuple[0][0])
+                balanceHighRange = str(balanceRangesTuple[0][1])
+                st.write("This interest rate is for the balance range: " + balanceLowRange + " - " + balanceHighRange)
+                st.caption("(0 means infinite)")
+                newInterestRate = st.text_input("Enter the new interest rate for the balance range:", value=None, placeholder="Enter a number...")
+                if st.button("Amend Interest Rate"):
+                    try:
+                        newInterestRate = float(newInterestRate)
+                        connection.execute("UPDATE InterestRates SET InterestRate = ? WHERE BankCurrencyID = (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = ?)) AND InterestRate = ?", (newInterestRate, bankName, currencyCode, interestRate))
+                        connection.commit()
+                        st.write("Interest rate amended successfully!")
+                    except:
+                        st.write("Invalid Inputs")
+        elif choice == choices[2]:
+            currencyCodesTuple = connection.execute("SELECT CurrencyCode FROM CurrencyType").fetchall()
+            currencyCodes = []
+            for currencyCodeTuple in currencyCodesTuple:
+                currencyCodes.append(currencyCodeTuple[0])
+            currencyCode = st.selectbox("Select the currency you want to amend:", currencyCodes, index=None, placeholder="Select a currency...")
+            currencyChoices = ["Amend Currency Name", "Amend Currency Symbol", "Amend Exchange Rate"]
+            currencyChoice = st.selectbox("Select what you want to amend:", currencyChoices, index=None, placeholder="Select an option...")
+            if currencyChoice == currencyChoices[0]:
+                newCurrencyName = st.text_input("Enter the new name for the currency:", value=None, placeholder="Enter a name...")
+                if st.button("Amend Currency"):
+                    try:
+                        connection.execute("UPDATE CurrencyType SET CurrencyName = ? WHERE CurrencyCode = ?", (newCurrencyName, currencyCode))
+                        connection.commit()
+                        st.write("Currency amended successfully!")
+                    except:
+                        st.write("Invalid Inputs")
+            elif currencyChoice == currencyChoices[1]:
+                newCurrencySymbol = st.text_input("Enter the new symbol for the currency (SINGLE CHARACTER):", value=None, placeholder="Enter a character...")
+                if st.button("Amend Currency"):
+                    try:
+                        connection.execute("UPDATE CurrencyType SET CurrencySymbol = ? WHERE CurrencyCode = ?", (newCurrencySymbol, currencyCode))
+                        connection.commit()
+                        st.write("Currency amended successfully!")
+                    except:
+                        st.write("Invalid Inputs")
+            elif currencyChoice == currencyChoices[2]:
+                newExchangeRate = st.text_input("Enter the new exchange rate to GBP (multiplier for this currency to give GBP):", value=None, placeholder="Enter a number...")
+                if st.button("Amend Currency"):
+                    try:
+                        newExchangeRate = float(newExchangeRate)
+                        connection.execute("UPDATE CurrencyType SET ExchangeRate = ? WHERE CurrencyCode = ?", (newExchangeRate, currencyCode))
+                        connection.commit()
+                        st.write("Currency amended successfully!")
+                    except:
+                        st.write("Invalid Inputs")
+        connection.close()
+
     # Button to reset the database.
     if st.button("Reset Database"):
         connection = sqlite3.connect("database.sqlite")

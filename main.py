@@ -59,6 +59,19 @@ connection.executescript('''
 connection.close()
 
 
+# Gathering a list of all bank names and currencies stored in the database.
+def getBankNamesAndCurrencies(connection):
+    bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
+    bankNames = []
+    for bankNameTuple in bankNamesTuple:
+        bankNames.append(bankNameTuple[0])
+    currencyCodesTuple = connection.execute("SELECT CurrencyCode FROM CurrencyType").fetchall()
+    currencyCodes = []
+    for currencyCodeTuple in currencyCodesTuple:
+        currencyCodes.append(currencyCodeTuple[0])
+    return bankNames, currencyCodes
+
+
 # Extracting the HTML code from the respective websites and placing each section into an array.
 def findHTMLSections(url):
     html = urlopen(url).read().decode("utf-8")
@@ -127,8 +140,14 @@ def insertIntoDatabase(balanceInterests, bankName):
 
 
 # The main function that links all the other functions together, it extracts all the data and automatically inserts it into the database.
-def getInterestRatesAndInsertIntoDatabase(info, model):
-    sectionsOfHTML = findHTMLSections(info[1])
+def getInterestRatesAndInsertIntoDatabase(info, model, retries=3):
+    try:
+        sectionsOfHTML = findHTMLSections(info[1])
+    except:
+        if retries > 0:
+            return getInterestRatesAndInsertIntoDatabase(info, model, retries - 1)
+        else:
+            return "noInternet"
     for sectionCheck in sectionsOfHTML:
         sectionCheck = sectionCheck.get_text().strip().replace("\n", " ")
         yn = checkIfContainsInterestRates(sectionCheck, model)
@@ -181,8 +200,11 @@ with databaseTab:
                     # calls the function that initiates the backend web scraping and data insertion for each bank.
                     for i in range(len(banks)):
                         info = banks[i]
-                        getInterestRatesAndInsertIntoDatabase(info, model)
-                st.success("Done!")
+                        result = getInterestRatesAndInsertIntoDatabase(info, model)
+                if result == "noInternet":
+                    st.error("No internet connection detected. Please check your connection and try again.")
+                else:
+                    st.success("Done!")
 
         with midCol2:
             # The download button to allow the user to download the database easily.
@@ -274,14 +296,7 @@ with databaseTab:
                 except:
                     st.write("Invalid Inputs")
         elif choice == choices[1]:
-            bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
-            bankNames = []
-            for bankNameTuple in bankNamesTuple:
-                bankNames.append(bankNameTuple[0])
-            currencyCodesTuple = connection.execute("SELECT CurrencyCode FROM CurrencyType").fetchall()
-            currencyCodes = []
-            for currencyCodeTuple in currencyCodesTuple:
-                currencyCodes.append(currencyCodeTuple[0])
+            bankNames, currencyCodes = getBankNamesAndCurrencies(connection)
             bankName = st.selectbox("Select the bank you want to add an interest rate for:", bankNames, index=None,
                                     placeholder="Select a bank..")
             currencyCode = st.selectbox("Select the currency for this interest rate:", currencyCodes, index=None,
@@ -348,14 +363,7 @@ with databaseTab:
                 connection.commit()
                 st.write("Bank deleted successfully!")
         elif choice == choices[1]:
-            bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
-            bankNames = []
-            for bankNameTuple in bankNamesTuple:
-                bankNames.append(bankNameTuple[0])
-            currencyCodesTuple = connection.execute("SELECT CurrencyCode FROM CurrencyType").fetchall()
-            currencyCodes = []
-            for currencyCodeTuple in currencyCodesTuple:
-                currencyCodes.append(currencyCodeTuple[0])
+            bankNames, currencyCodes = getBankNamesAndCurrencies(connection)
             bankName = st.selectbox("Select the bank you want to delete an interest rate from:", bankNames, index=None, placeholder="Select a bank..")
             currencyCode = st.selectbox("Select the currency for this interest rate:", currencyCodes, index=None, placeholder="Select a currency...")
             interestRatesTuple = connection.execute("SELECT InterestRate FROM InterestRates WHERE BankCurrencyID IN (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = ?))", (bankName, currencyCode)).fetchall()
@@ -420,14 +428,7 @@ with databaseTab:
                     except:
                         st.write("Invalid Inputs")
         elif choice == choices[1]:
-            bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
-            bankNames = []
-            for bankNameTuple in bankNamesTuple:
-                bankNames.append(bankNameTuple[0])
-            currencyCodesTuple = connection.execute("SELECT CurrencyCode FROM CurrencyType").fetchall()
-            currencyCodes = []
-            for currencyCodeTuple in currencyCodesTuple:
-                currencyCodes.append(currencyCodeTuple[0])
+            bankNames, currencyCodes = getBankNamesAndCurrencies(connection)
             bankName = st.selectbox("Select the bank you want to amend an interest rate for:", bankNames, index=None, placeholder="Select a bank..")
             currencyCode = st.selectbox("Select the currency for this interest rate:", currencyCodes, index=None, placeholder="Select a currency...")
             interestRatesTuple = connection.execute("SELECT InterestRate FROM InterestRates WHERE BankCurrencyID IN (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = ?))", (bankName, currencyCode)).fetchall()
@@ -605,4 +606,11 @@ with interestTab:
 
 # The fourth tab is for graphing the data.
 with graphingTab:
-    st.write("This feature is currently under development.")
+    _, titleCol, _ = st.columns([1, 7, 1])
+
+    with titleCol:
+        st.title("Graphing Interest Rate against Savings Balance")
+
+    st.divider()
+
+    st.write("This function is currently under development.")

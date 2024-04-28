@@ -140,7 +140,7 @@ def getInterestRatesAndInsertIntoDatabase(info, model):
 
 
 # All the code below is for the Streamlit GUI.
-databaseTab, interestTab = st.tabs(["Database Manipulation", "Interest Rates"])
+databaseTab, interestTab, graphingTab = st.tabs(["Database Manipulation", "Information and Predictions", "Graphing"])
 
 # The first tab is for database manipulation.
 with databaseTab:
@@ -154,35 +154,35 @@ with databaseTab:
         with midCol1:
             # The button that initiates the extraction and insertion of new data.
             if st.button("Gather Latest Data"):
+                with st.spinner("Gathering Data..."):
+                    # Inserting the required banks and currency types into the database (approximate exchange rates for currencies).
+                    currencies = [
+                        ["Pounds", "GBP", "£", 1],
+                        ["Euros", "EUR", "€", 0.85],
+                        ["US Dollars", "USD", "$", 0.8]
+                    ]
 
-                # Inserting the required banks and currency types into the database (approximate exchange rates for currencies).
-                currencies = [
-                    ["Pounds", "GBP", "£", 1],
-                    ["Euros", "EUR", "€", 0.85],
-                    ["US Dollars", "USD", "$", 0.8]
-                ]
+                    banks = [
+                        ["NatWest", "https://www.natwest.com/savings/flexible-saver.html"],
+                        ["Barclays", "https://www.barclays.co.uk/savings/interest-rates/everyday-saver/"],
+                        ["HSBC", "https://www.hsbc.co.uk/savings/products/flexible-saver/"],
+                        ["Lloyd's Bank", "https://www.lloydsbank.com/savings/easy-saver.html"]
+                    ]
 
-                banks = [
-                    ["NatWest", "https://www.natwest.com/savings/flexible-saver.html"],
-                    ["Barclays", "https://www.barclays.co.uk/savings/interest-rates/everyday-saver/"],
-                    ["HSBC", "https://www.hsbc.co.uk/savings/products/flexible-saver/"]
-                ]
+                    connection = sqlite3.connect("database.sqlite")
+                    connection.execute("PRAGMA foreign_keys = ON")
+                    connection.executemany(
+                        "INSERT OR IGNORE INTO CurrencyType (CurrencyName, CurrencyCode, CurrencySymbol, ExchangeRate) VALUES (?, ?, ?, ?)",
+                        currencies)
+                    connection.executemany("INSERT OR IGNORE INTO BankDetails (BankName, BankWebsite) VALUES (?, ?)", banks)
+                    connection.commit()
+                    connection.close()
 
-                connection = sqlite3.connect("database.sqlite")
-                connection.execute("PRAGMA foreign_keys = ON")
-                connection.executemany(
-                    "INSERT OR IGNORE INTO CurrencyType (CurrencyName, CurrencyCode, CurrencySymbol, ExchangeRate) VALUES (?, ?, ?, ?)",
-                    currencies)
-                connection.executemany("INSERT OR IGNORE INTO BankDetails (BankName, BankWebsite) VALUES (?, ?)", banks)
-                connection.commit()
-                connection.close()
-
-                # calls the function that initiates the backend web scraping and data insertion for each bank.
-                for i in range(len(banks)):
-                    info = banks[i]
-                    getInterestRatesAndInsertIntoDatabase(info, model)
-
-                st.write("Done")
+                    # calls the function that initiates the backend web scraping and data insertion for each bank.
+                    for i in range(len(banks)):
+                        info = banks[i]
+                        getInterestRatesAndInsertIntoDatabase(info, model)
+                st.success("Done!")
 
         with midCol2:
             # The download button to allow the user to download the database easily.
@@ -503,7 +503,8 @@ with databaseTab:
         connection.close()
         st.write("Database reset successfully!")
 
-# The second tab is for seeing what interest rate you could have on your savings balance.
+
+# The second tab is for seeing what interest rate you could have on your savings balance and optionally give predictions.
 with interestTab:
     _, mainCol, _ = st.columns([1, 6, 1])
 
@@ -526,7 +527,7 @@ with interestTab:
             connection = sqlite3.connect("database.sqlite")
             connection.execute("PRAGMA foreign_keys = ON")
 
-            # When you extract the entities from SQLite columns, they come as a tuple. This code turns it into a regular list of bank names. It also removes any duplicates at the end.
+            # When you extract the entities from SQLite columns, they come as a tuple. This code turns it into a regular list of bank names.
             bankNamesTuple = connection.execute("SELECT BankName FROM BankDetails").fetchall()
             bankNames = []
             for bankNameTuple in bankNamesTuple:
@@ -566,4 +567,42 @@ with interestTab:
                     _, interestCol, _ = st.columns([1, 3, 1])
                     with interestCol:
                         st.write("#### Your savings interest rate is: " + str(interestRate) + "% AER\n###### This is for a balance between £" + str(balanceRanges[i]) + " and £" + str(balanceRanges[i + 1]) + ".")
+
+                        st.write("")
+
+                        predictions = st.checkbox("Would you like to see how your savings balance could grow over time?")
+
+                        st.write("")
+
+                        if predictions:
+                            years = st.text_input("Enter the number of years you plan to save for:", value=None, placeholder="Enter a number...")
+                            st.write("This should be a whole number of years.")
+
+                            st.write("")
+
+                            if years:
+                                valid = False
+                                try:
+                                    years = int(years)
+                                    valid = True
+                                except:
+                                    st.write("Invalid Input")
+
+                                if valid:
+                                    balance = num
+                                    for i in range(years):
+                                        for j in range(0, len(balanceRanges_updated), 2):
+                                            # Check if balance has moved to a new range at the end of each year.
+                                            if balanceRanges_updated[j] <= balance < (balanceRanges_updated[j + 1] + 1):
+                                                interestRate = connection.execute(
+                                                    "SELECT InterestRate FROM InterestRates WHERE BankCurrencyID = (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?)) AND BalanceRangeID = (SELECT BalanceRangeID FROM BalanceRanges WHERE BalanceLowRange = ? AND BalanceHighRange = ?)",
+                                                    (option, balanceRanges[j], balanceRanges[j + 1])).fetchall()[0][0]
+                                                break
+                                        balance += balance * (interestRate / 100)
+                                    st.write("###### Your savings balance after " + str(years) + " years is predicted to be:\n#### £" + str(round(balance, 2)))
             connection.close()
+
+
+# The fourth tab is for graphing the data.
+with graphingTab:
+    st.write("This feature is currently under development.")

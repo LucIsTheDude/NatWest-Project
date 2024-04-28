@@ -439,7 +439,7 @@ with databaseTab:
                 balanceRangesTuple = connection.execute("SELECT BalanceLowRange, BalanceHighRange FROM BalanceRanges WHERE BalanceRangeID = (SELECT BalanceRangeID FROM InterestRates WHERE BankCurrencyID = (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?) AND CurrencyID = (SELECT CurrencyID FROM CurrencyType WHERE CurrencyCode = ?)) AND InterestRate = ?)", (bankName, currencyCode, interestRate)).fetchall()
                 balanceLowRange = str(balanceRangesTuple[0][0])
                 balanceHighRange = str(balanceRangesTuple[0][1])
-                st.write("This interest rate is for the balance range: " + balanceLowRange + " - " + balanceHighRange)
+                st.write("This interest rate is for the balance range: £" + balanceLowRange + " - £" + balanceHighRange)
                 st.caption("(0 means infinite)")
                 newInterestRate = st.text_input("Enter the new interest rate for the balance range:", value=None, placeholder="Enter a number...")
                 if st.button("Amend Interest Rate"):
@@ -517,7 +517,7 @@ with interestTab:
     if num:
         valid = False
         try:
-            num = float(num)
+            num = round(float(num), 2)
             valid = True
         except:
             st.write("Invalid Input")
@@ -552,19 +552,18 @@ with interestTab:
 
                 interestRate = None  # Default value if no interest rate is found.
                 for i in range(0, len(balanceRanges_updated), 2):
-                    if balanceRanges_updated[i] <= num <= balanceRanges_updated[i + 1]:
+                    if balanceRanges_updated[i] <= num < (balanceRanges_updated[i + 1] + 1):
                         interestRate = connection.execute(
                             "SELECT InterestRate FROM InterestRates WHERE BankCurrencyID = (SELECT BankCurrencyID FROM BankCurrency WHERE BankID = (SELECT BankID FROM BankDetails WHERE BankName = ?)) AND BalanceRangeID = (SELECT BalanceRangeID FROM BalanceRanges WHERE BalanceLowRange = ? AND BalanceHighRange = ?)",
                             (option, balanceRanges[i], balanceRanges[i + 1])).fetchall()[0][0]
                         break
 
                 st.write("")
-                st.write("")
 
                 if interestRate is None:
                     st.write("##### This bank has not supplied an interest rate for your savings amount.")
                 else:
-                    _, interestCol, _ = st.columns([4, 7, 4])
+                    _, interestCol, _ = st.columns([1, 3, 1])
                     with interestCol:
-                        st.write("##### Your savings interest rate is:", interestRate)
+                        st.write("#### Your savings interest rate is: " + str(interestRate) + "% AER\n###### This is for a balance between £" + str(balanceRanges[i]) + " and £" + str(balanceRanges[i + 1]) + ".")
             connection.close()

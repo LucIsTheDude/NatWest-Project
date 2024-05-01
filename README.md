@@ -1,8 +1,12 @@
-# CS Project: Run Instructions
+# CS Project
 
-1. in an administrator cmd, set your OpenAI API key as an environment variable using the command 'setx OPENAI_API_KEY YourAPIKey'
-2. install poetry, the python packaging and dependency manager
-3. open the 'Program' folder as a project in your chosen IDE
-4. create a poetry environment for the IDE python interpreter using python 310
-5. if not already done, run 'poetry install' in the IDE shell/terminal to install dependencies
-6. in the IDE shell/terminal run 'streamlit run main.py' to start the app
+To view my project, please visit the following link:
+https://csproject.streamlit.app/
+
+Or, to run the project locally, please follow the instructions below:
+
+1. install poetry, the python packaging and dependency manager.
+2. open the 'Program' folder as a project in your chosen IDE.
+3. create a poetry environment for the IDE python interpreter using python 3.10 (or try just with a regular python 3.10 interpreter).
+4. if not already done, run 'poetry install' in the IDE shell/terminal to install dependencies.
+5. in the IDE shell/terminal run 'streamlit run main.py' to start the app in your browser.
